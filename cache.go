@@ -42,6 +42,14 @@ type Config struct {
 	CacheKeyImpl CacheKeyType
 }
 
+func NewConfig(LockImpl LockType, CacheImpl CacheType, CacheKeyImpl CacheKeyType) *Config {
+	return &Config{
+		LockImpl:     LockImpl,
+		CacheImpl:    CacheImpl,
+		CacheKeyImpl: CacheKeyImpl,
+	}
+}
+
 type CacheType interface {
 	Get(string, reflect.Type) ([]reflect.Value, bool, error)
 	Set(string, []reflect.Value, time.Duration) error

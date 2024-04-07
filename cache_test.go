@@ -13,12 +13,8 @@ func Example() {
 	// cachedAdd := CachedFunc(add, NewMuLockImpl())
 	// cachedAdd := CachedFunc(add, NewRedisLockImpl(redis.NewClient(nil)), NewMapCacheImpl(time.Second), NewDefaultCacheKeyImpl(), 5*time.Second)
 
-	config := Config{
-		LockImpl:     NewNoLockImpl(),
-		CacheImpl:    NewMapCacheImpl(),
-		CacheKeyImpl: NewDefaultCacheKeyImpl(),
-	}
-	cachedAdd := CachedFunc(add, config, 5*time.Second)
+	config := NewConfig(NewNoLockImpl(), NewMapCacheImpl(), NewDefaultCacheKeyImpl())
+	cachedAdd := CachedFunc(add, *config, 5*time.Second)
 
 	fmt.Println(cachedAdd(2, 3)) // Output: 5
 	fmt.Println(cachedAdd(2, 3)) // Output: 5 (cached)
