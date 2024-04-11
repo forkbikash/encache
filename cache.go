@@ -36,17 +36,19 @@ import (
 // ├── metrics.go
 // └── utils.go
 
-type Config struct {
-	LockImpl     LockType
-	CacheImpl    CacheType
-	CacheKeyImpl CacheKeyType
+type config struct {
+	LockImpl      LockType
+	CacheImpl     CacheType
+	CacheKeyImpl  CacheKeyType
+	SetCacheOnErr bool
 }
 
-func NewConfig(LockImpl LockType, CacheImpl CacheType, CacheKeyImpl CacheKeyType) *Config {
-	return &Config{
-		LockImpl:     LockImpl,
-		CacheImpl:    CacheImpl,
-		CacheKeyImpl: CacheKeyImpl,
+func NewConfig(LockImpl LockType, CacheImpl CacheType, CacheKeyImpl CacheKeyType, setCacheOnErr bool) *config {
+	return &config{
+		LockImpl:      LockImpl,
+		CacheImpl:     CacheImpl,
+		CacheKeyImpl:  CacheKeyImpl,
+		SetCacheOnErr: setCacheOnErr,
 	}
 }
 
@@ -69,7 +71,7 @@ type LockType interface {
 
 // closure = returned anonymous inner function + outer context(variables defined outside of inner function)
 // func CachedFunc[T any](f T, lockImpl LockType, cacheImpl CacheType, cacheKeyImpl CacheKeyType, expiry time.Duration) T {
-func CachedFunc[T any](f T, config Config, expiry time.Duration) T {
+func CachedFunc[T any](f T, config config, expiry time.Duration) T {
 	fValue := reflect.ValueOf(f)
 	fType := fValue.Type()
 
@@ -82,33 +84,50 @@ func CachedFunc[T any](f T, config Config, expiry time.Duration) T {
 	return reflect.MakeFunc(fType, func(args []reflect.Value) []reflect.Value {
 		key := config.CacheKeyImpl.Key(args)
 
-		_ = config.LockImpl.lock()
-		// if err != nil {
-		// 	return []reflect.Value{nil, err}
-		// }
+		lockerr := config.LockImpl.lock()
+		if lockerr != nil {
+			log.Println("error in lock: ", lockerr)
+			return callAndSet(fValue, args, config.CacheImpl, config.SetCacheOnErr, key, expiry)
+		}
 		defer func() {
-			err := config.LockImpl.unlock()
-			if err != nil {
-				log.Println("error in unlock: ", err)
+			unlockerr := config.LockImpl.unlock()
+			if unlockerr != nil {
+				log.Println("error in unlock: ", unlockerr)
 			}
 		}()
 
-		res, found, _ := config.CacheImpl.Get(key, fType)
-		// if err != nil {
-		// 	return nil, err
-		// }
+		getres, found, geterr := config.CacheImpl.Get(key, fType)
+		if geterr != nil {
+			log.Println("error in get: ", geterr)
+			return callAndSet(fValue, args, config.CacheImpl, config.SetCacheOnErr, key, expiry)
+		}
 		if found {
-			return res
+			return getres
 		}
 
-		res = fValue.Call(args)
-		// if error, don't set. decide from config
-
-		_ = config.CacheImpl.Set(key, res, expiry)
-		// if err != nil {
-		// 	return nil, err
-		// }
-
-		return res
+		return callAndSet(fValue, args, config.CacheImpl, config.SetCacheOnErr, key, expiry)
 	}).Interface().(T)
+}
+
+func callAndSet(fValue reflect.Value, args []reflect.Value, cacheImpl CacheType, setCacheOnErr bool, key string, expiry time.Duration) []reflect.Value {
+	callres := fValue.Call(args)
+
+	var callreserr error
+	for _, v := range callres {
+		if v.Kind() == reflect.Interface {
+			if errVal, ok := v.Interface().(error); ok {
+				callreserr = errVal
+				break
+			}
+		}
+	}
+
+	if setCacheOnErr || callreserr == nil {
+		seterr := cacheImpl.Set(key, callres, expiry)
+		if seterr != nil {
+			log.Println("error in set: ", seterr)
+		}
+	}
+
+	return callres
 }
