@@ -1,4 +1,4 @@
-package cacheme
+package encache
 
 import (
 	"context"

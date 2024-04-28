@@ -1,40 +1,10 @@
-package cacheme
+package encache
 
 import (
 	"log"
 	"reflect"
 	"time"
 )
-
-// do these first:
-// way to return error if some error in MakeFunc
-// learn the differences between interface{}, kind, type
-// write unit tests
-// write doc
-
-// features(implement all of them):
-// Cache invalidation strategies: Aside from the simple expiration-based cache invalidation, we can add support for other strategies like manual invalidation, LRU (Least Recently Used) eviction, or event-based invalidation (e.g., invalidating the cache when the underlying data changes).
-// Monitoring and metrics: Provide metrics and monitoring capabilities to help users understand the cache's performance, hit/miss rates, and other relevant statistics.
-// Adaptive caching: Implement an adaptive caching mechanism that can automatically adjust the cache size, eviction policy, or other parameters based on the workload and usage patterns.
-// Asynchronous cache updates: Provide an asynchronous cache update mechanism to allow for non-blocking cache population and update operations.
-// package structure
-// caching/
-// ├── backend/
-// │   ├── memory/
-// │   ├── redis/
-// │   └── memcached/
-// ├── policy/
-// │   ├── expiration/
-// │   ├── lru/
-// │   └── invalidation/
-// ├── serializer/
-// │   ├── json/
-// │   ├── gob/
-// │   └── msgpack/
-// ├── cache.go
-// ├── options.go
-// ├── metrics.go
-// └── utils.go
 
 type Encache struct {
 	LockImpl      LockType
@@ -43,13 +13,17 @@ type Encache struct {
 	SetCacheOnErr bool
 }
 
-func NewEncache(LockImpl LockType, CacheImpl CacheType, CacheKeyImpl CacheKeyType, setCacheOnErr bool) *Encache {
-	return &Encache{
+func NewEncache(LockImpl LockType, CacheImpl CacheType, CacheKeyImpl CacheKeyType, setCacheOnErr bool, staleRemovalPeriod time.Duration) Encache {
+	encache := Encache{
 		LockImpl:      LockImpl,
 		CacheImpl:     CacheImpl,
 		CacheKeyImpl:  CacheKeyImpl,
 		SetCacheOnErr: setCacheOnErr,
 	}
+
+	encache.CacheImpl.PeriodicExpire(staleRemovalPeriod)
+
+	return encache
 }
 
 type CacheType interface {
@@ -71,7 +45,7 @@ type LockType interface {
 }
 
 // closure = returned anonymous inner function + outer context(variables defined outside of inner function)
-// func CachedFunc[T any](f T, lockImpl LockType, cacheImpl CacheType, cacheKeyImpl CacheKeyType, expiry time.Duration) T {
+// get the instance of function f with caching logic
 func CachedFunc[T any](f T, encache Encache, expiry time.Duration) T {
 	fValue := reflect.ValueOf(f)
 	fType := fValue.Type()
@@ -79,8 +53,6 @@ func CachedFunc[T any](f T, encache Encache, expiry time.Duration) T {
 	if fType.Kind() != reflect.Func {
 		panic("input is not a function")
 	}
-
-	encache.CacheImpl.PeriodicExpire(expiry)
 
 	return reflect.MakeFunc(fType, func(args []reflect.Value) []reflect.Value {
 		key := encache.CacheKeyImpl.Key(args)
@@ -103,9 +75,11 @@ func CachedFunc[T any](f T, encache Encache, expiry time.Duration) T {
 			return callAndSet(fValue, args, encache.CacheImpl, encache.SetCacheOnErr, key, expiry)
 		}
 		if found {
+			log.Println("cache found")
 			return getres
 		}
 
+		log.Println("cache not found")
 		return callAndSet(fValue, args, encache.CacheImpl, encache.SetCacheOnErr, key, expiry)
 	}).Interface().(T)
 }
@@ -133,7 +107,7 @@ func callAndSet(fValue reflect.Value, args []reflect.Value, cacheImpl CacheType,
 	return callres
 }
 
-// called when you want to change expiration or expire immediately
+// change expiration or expire immediately
 // to expire immediately, pass 0 as expiry
 func Expire(encache Encache, key string, expiry time.Duration) error {
 	return encache.CacheImpl.Expire(key, expiry)

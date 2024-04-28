@@ -1,9 +1,10 @@
-package cacheme
+package encache
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"reflect"
 	"time"
 
@@ -66,8 +67,24 @@ func (cacheImpl *MapCacheImpl) Deserialize(serializedResult string, fType reflec
 	return nil, nil
 }
 
-// expire a key after a certain duration
+// expire after a certain duration
 func (cacheImpl *MapCacheImpl) Expire(key string, expiry time.Duration) error {
+	muLockImpl := NewMuLockImpl()
+	lockerr := muLockImpl.lock()
+	if lockerr != nil {
+		// unreachable
+		log.Println("error in lock: ", lockerr)
+		panic("error in lock: " + lockerr.Error())
+	}
+	defer func() {
+		unlockerr := muLockImpl.unlock()
+		if unlockerr != nil {
+			// unreachable
+			log.Println("error in unlock: ", unlockerr)
+			panic("error in unlock: " + unlockerr.Error())
+		}
+	}()
+
 	cacheEntry, ok := cacheImpl.cache[key]
 	if ok {
 		if expiry <= 0 {
@@ -77,20 +94,22 @@ func (cacheImpl *MapCacheImpl) Expire(key string, expiry time.Duration) error {
 			seterr := cacheImpl.Set(key, cacheEntry.value, expiry)
 			return seterr
 		}
-
 	}
 
 	return nil
 }
 
 // start a goroutine to periodically check and remove expired cache entries
-func (cacheImpl *MapCacheImpl) PeriodicExpire(expiry time.Duration) {
+func (cacheImpl *MapCacheImpl) PeriodicExpire(runOnDuration time.Duration) {
 	go func() {
 		for {
-			time.Sleep(expiry / 2)
+			time.Sleep(runOnDuration)
 			for key, entry := range cacheImpl.cache {
 				if entry.expiryTime.Before(time.Now()) {
-					delete(cacheImpl.cache, key)
+					err := cacheImpl.Expire(key, 0)
+					if err != nil {
+						log.Println("error in periodic expire: ", err)
+					}
 				}
 			}
 		}
