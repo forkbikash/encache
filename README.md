@@ -46,10 +46,10 @@ func main() {
 	lockImpl := encache.NewMuLockImpl()
 
 	// Create a new encache instance
-	encache := encache.NewEncache(lockImpl, mapCache, cacheKeyImpl, false)
+	encache := encache.NewEncache(lockImpl, mapCache, cacheKeyImpl, false, time.Minute)
 
 	// Wrap the expensive function with caching
-	cachedExpensiveOperation := encache.CachedFunc(expensiveOperation, time.Minute)
+	cachedExpensiveOperation := encache.CachedFunc(expensiveOperation, encache, time.Minute)
 
 	// Call the cached function
 	result, err := cachedExpensiveOperation(2, 3)
