@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func TestMapImplCachedFunc(t *testing.T) {
@@ -81,6 +83,50 @@ func TestMapImplCachedFunc(t *testing.T) {
 
 	// Test non caching
 	result, err = cachedErrorFunc(2, 10)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+}
+
+func TestRedisImplCachedFunc(t *testing.T) {
+	// Test with RedisCacheImpl
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	redisCache := NewRedisCacheImpl(redisClient)
+	cacheKeyImpl := NewDefaultCacheKeyImpl()
+	redisLockImpl := NewRedisLockImpl(redisClient, time.Minute)
+
+	// Test a simple function
+	simpleFunc := func(a, b int) (int, error) {
+		return a + b, nil
+	}
+
+	cachedSimpleFunc := CachedFunc(simpleFunc, NewEncache(redisLockImpl, redisCache, cacheKeyImpl, false, time.Second), time.Minute)
+
+	result, err := cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+
+	// Test caching
+	result, err = cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+
+	// Test expiration
+	time.Sleep(time.Minute + time.Second)
+	result, err = cachedSimpleFunc(2, 3)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
