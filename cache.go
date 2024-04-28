@@ -36,15 +36,15 @@ import (
 // ├── metrics.go
 // └── utils.go
 
-type config struct {
+type Encache struct {
 	LockImpl      LockType
 	CacheImpl     CacheType
 	CacheKeyImpl  CacheKeyType
 	SetCacheOnErr bool
 }
 
-func NewConfig(LockImpl LockType, CacheImpl CacheType, CacheKeyImpl CacheKeyType, setCacheOnErr bool) *config {
-	return &config{
+func NewEncache(LockImpl LockType, CacheImpl CacheType, CacheKeyImpl CacheKeyType, setCacheOnErr bool) *Encache {
+	return &Encache{
 		LockImpl:      LockImpl,
 		CacheImpl:     CacheImpl,
 		CacheKeyImpl:  CacheKeyImpl,
@@ -57,7 +57,8 @@ type CacheType interface {
 	Set(string, []reflect.Value, time.Duration) error
 	Serialize([]reflect.Value) (string, error)
 	Deserialize(string, reflect.Type) ([]reflect.Value, error)
-	Expire(time.Duration)
+	PeriodicExpire(time.Duration)
+	Expire(string, time.Duration) error
 }
 
 type CacheKeyType interface {
@@ -71,7 +72,7 @@ type LockType interface {
 
 // closure = returned anonymous inner function + outer context(variables defined outside of inner function)
 // func CachedFunc[T any](f T, lockImpl LockType, cacheImpl CacheType, cacheKeyImpl CacheKeyType, expiry time.Duration) T {
-func CachedFunc[T any](f T, config config, expiry time.Duration) T {
+func CachedFunc[T any](f T, encache Encache, expiry time.Duration) T {
 	fValue := reflect.ValueOf(f)
 	fType := fValue.Type()
 
@@ -79,33 +80,33 @@ func CachedFunc[T any](f T, config config, expiry time.Duration) T {
 		panic("input is not a function")
 	}
 
-	config.CacheImpl.Expire(expiry)
+	encache.CacheImpl.PeriodicExpire(expiry)
 
 	return reflect.MakeFunc(fType, func(args []reflect.Value) []reflect.Value {
-		key := config.CacheKeyImpl.Key(args)
+		key := encache.CacheKeyImpl.Key(args)
 
-		lockerr := config.LockImpl.lock()
+		lockerr := encache.LockImpl.lock()
 		if lockerr != nil {
 			log.Println("error in lock: ", lockerr)
-			return callAndSet(fValue, args, config.CacheImpl, config.SetCacheOnErr, key, expiry)
+			return callAndSet(fValue, args, encache.CacheImpl, encache.SetCacheOnErr, key, expiry)
 		}
 		defer func() {
-			unlockerr := config.LockImpl.unlock()
+			unlockerr := encache.LockImpl.unlock()
 			if unlockerr != nil {
 				log.Println("error in unlock: ", unlockerr)
 			}
 		}()
 
-		getres, found, geterr := config.CacheImpl.Get(key, fType)
+		getres, found, geterr := encache.CacheImpl.Get(key, fType)
 		if geterr != nil {
 			log.Println("error in get: ", geterr)
-			return callAndSet(fValue, args, config.CacheImpl, config.SetCacheOnErr, key, expiry)
+			return callAndSet(fValue, args, encache.CacheImpl, encache.SetCacheOnErr, key, expiry)
 		}
 		if found {
 			return getres
 		}
 
-		return callAndSet(fValue, args, config.CacheImpl, config.SetCacheOnErr, key, expiry)
+		return callAndSet(fValue, args, encache.CacheImpl, encache.SetCacheOnErr, key, expiry)
 	}).Interface().(T)
 }
 
@@ -130,4 +131,10 @@ func callAndSet(fValue reflect.Value, args []reflect.Value, cacheImpl CacheType,
 	}
 
 	return callres
+}
+
+// called when you want to change expiration or expire immediately
+// to expire immediately, pass 0 as expiry
+func Expire(encache Encache, key string, expiry time.Duration) error {
+	return encache.CacheImpl.Expire(key, expiry)
 }

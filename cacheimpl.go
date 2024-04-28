@@ -66,8 +66,25 @@ func (cacheImpl *MapCacheImpl) Deserialize(serializedResult string, fType reflec
 	return nil, nil
 }
 
+// expire a key after a certain duration
+func (cacheImpl *MapCacheImpl) Expire(key string, expiry time.Duration) error {
+	cacheEntry, ok := cacheImpl.cache[key]
+	if ok {
+		if expiry <= 0 {
+			delete(cacheImpl.cache, key)
+			return nil
+		} else {
+			seterr := cacheImpl.Set(key, cacheEntry.value, expiry)
+			return seterr
+		}
+
+	}
+
+	return nil
+}
+
 // start a goroutine to periodically check and remove expired cache entries
-func (cacheImpl *MapCacheImpl) Expire(expiry time.Duration) {
+func (cacheImpl *MapCacheImpl) PeriodicExpire(expiry time.Duration) {
 	go func() {
 		for {
 			time.Sleep(expiry / 2)
@@ -147,8 +164,15 @@ func (cacheImpl *RedisCacheImpl) Set(key string, value []reflect.Value, expiry t
 	return nil
 }
 
-// just to satisfy the interface
-func (cacheImpl *RedisCacheImpl) Expire(_ time.Duration) {}
+// just to satisfy the interface as expirations happens automatically
+func (cacheImpl *RedisCacheImpl) PeriodicExpire(_ time.Duration) {}
+
+func (cacheImpl *RedisCacheImpl) Expire(key string, expiry time.Duration) error {
+	ctx := context.Background()
+	err := cacheImpl.client.Expire(ctx, key, expiry).Err()
+
+	return err
+}
 
 type CacheKeyImpl struct{}
 
@@ -156,7 +180,7 @@ func NewDefaultCacheKeyImpl() *CacheKeyImpl {
 	return &CacheKeyImpl{}
 }
 
-func (cacheKeyImpl *CacheKeyImpl) Key(args []reflect.Value) string {
+func (cacheImpl *CacheKeyImpl) Key(args []reflect.Value) string {
 	key := ""
 	for _, arg := range args {
 		key += fmt.Sprintf("%v", arg.Interface())
