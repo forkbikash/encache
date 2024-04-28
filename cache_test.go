@@ -2,6 +2,7 @@ package encache
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -132,5 +133,184 @@ func TestRedisImplCachedFunc(t *testing.T) {
 	}
 	if result != 5 {
 		t.Errorf("expected 5, got %d", result)
+	}
+}
+
+func TestMapImplExpire(t *testing.T) {
+	// Test with MapCacheImpl
+	mapCache := NewMapCacheImpl()
+	cacheKeyImpl := NewDefaultCacheKeyImpl()
+	lockImpl := NewMuLockImpl()
+	encache := NewEncache(lockImpl, mapCache, cacheKeyImpl, false, time.Second)
+
+	simpleFunc := func(a, b int) (int, error) {
+		return a + b, nil
+	}
+
+	cachedSimpleFunc := CachedFunc(simpleFunc, encache, time.Minute)
+
+	result, err := cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+
+	// Test expire immediately
+	err = Expire(encache, "23", 0)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	result, err = cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+
+	// Test expire after a duration
+	result, err = cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+
+	err = Expire(encache, "23", time.Second)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	result, err = cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+}
+
+func TestRedisImplExpire(t *testing.T) {
+	// Test with RedisCacheImpl
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	redisCache := NewRedisCacheImpl(redisClient)
+	cacheKeyImpl := NewDefaultCacheKeyImpl()
+	redisLockImpl := NewRedisLockImpl(redisClient, time.Minute)
+	encache := NewEncache(redisLockImpl, redisCache, cacheKeyImpl, false, time.Second)
+
+	simpleFunc := func(a, b int) (int, error) {
+		return a + b, nil
+	}
+
+	cachedSimpleFunc := CachedFunc(simpleFunc, encache, time.Minute)
+
+	result, err := cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+
+	// Test expire immediately
+	err = Expire(encache, "23", 0)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	result, err = cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+
+	// Test expire after a duration
+	result, err = cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+
+	err = Expire(encache, "23", time.Second)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	result, err = cachedSimpleFunc(2, 3)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result != 5 {
+		t.Errorf("expected 5, got %d", result)
+	}
+}
+
+func TestCacheKeyImpl(t *testing.T) {
+	cacheKeyImpl := NewDefaultCacheKeyImpl()
+
+	args := []reflect.Value{reflect.ValueOf(1), reflect.ValueOf(2), reflect.ValueOf("three")}
+	key := cacheKeyImpl.Key(args)
+	expected := "12three"
+	if key != expected {
+		t.Errorf("expected key %s, got %s", expected, key)
+	}
+}
+
+func TestMuLockImpl(t *testing.T) {
+	lockImpl := NewMuLockImpl()
+
+	err := lockImpl.lock()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	err = lockImpl.unlock()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRedisLockImpl(t *testing.T) {
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	lockImpl := NewRedisLockImpl(redisClient, time.Minute)
+
+	err := lockImpl.lock("test")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	err = lockImpl.unlock("test")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestNoLockImpl(t *testing.T) {
+	lockImpl := NewNoLockImpl()
+
+	err := lockImpl.lock()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	err = lockImpl.unlock()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
