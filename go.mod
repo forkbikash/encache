@@ -1,4 +1,4 @@
-module encache
+module github.com/forkbikash/encache
 
 go 1.22.0
 
