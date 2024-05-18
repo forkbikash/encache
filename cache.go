@@ -3,6 +3,7 @@ package encache
 import (
 	"log"
 	"reflect"
+	"runtime"
 	"time"
 )
 
@@ -36,7 +37,7 @@ type CacheType interface {
 }
 
 type CacheKeyType interface {
-	Key([]reflect.Value) string
+	Key(string, []reflect.Value) string
 }
 
 type LockType interface {
@@ -54,8 +55,14 @@ func CachedFunc[T any](f T, encache Encache, expiry time.Duration) T {
 		panic("input is not a function")
 	}
 
+	funcInfo := runtime.FuncForPC(fValue.Pointer())
+	if funcInfo == nil {
+		panic("unknown function")
+	}
+	fName := funcInfo.Name()
+
 	return reflect.MakeFunc(fType, func(args []reflect.Value) []reflect.Value {
-		key := encache.CacheKeyImpl.Key(args)
+		key := encache.CacheKeyImpl.Key(fName, args)
 
 		lockerr := encache.LockImpl.lock()
 		if lockerr != nil {

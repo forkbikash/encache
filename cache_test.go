@@ -263,7 +263,7 @@ func TestCacheKeyImpl(t *testing.T) {
 	cacheKeyImpl := NewDefaultCacheKeyImpl()
 
 	args := []reflect.Value{reflect.ValueOf(1), reflect.ValueOf(2), reflect.ValueOf("three")}
-	key := cacheKeyImpl.Key(args)
+	key := cacheKeyImpl.Key("funcA", args)
 	expected := "12three"
 	if key != expected {
 		t.Errorf("expected key %s, got %s", expected, key)

@@ -199,8 +199,8 @@ func NewDefaultCacheKeyImpl() *CacheKeyImpl {
 	return &CacheKeyImpl{}
 }
 
-func (cacheImpl *CacheKeyImpl) Key(args []reflect.Value) string {
-	key := ""
+func (cacheImpl *CacheKeyImpl) Key(fName string, args []reflect.Value) string {
+	key := fName
 	for _, arg := range args {
 		key += fmt.Sprintf("%v", arg.Interface())
 	}
